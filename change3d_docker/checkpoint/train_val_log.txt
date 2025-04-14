@@ -1,0 +1,25 @@
+Model Configurations:
+dataset: LEVIR-CD
+datasets: LEVIR-CD,WHU,CLCD
+file_root: path/to/LEVIR-CD
+file_roots: D:/代码/RSIIS/变化检测模型/Change3D/dataes/LEVIR-CD,D:/代码/RSIIS/变化检测模型/Change3D/dataes/WHU,D:/代码/RSIIS/变化检测模型/Change3D/dataes/CLCD
+in_height: 256
+in_width: 256
+num_perception_frame: 1
+num_class: 1
+max_steps: 15000
+batch_size: 8
+num_workers: 0
+lr: 0.0002
+lr_mode: poly
+step_loss: 100
+pretrained: D:/代码/RSIIS/变化检测模型/Change3D/X3D_L.pyth
+save_dir: ./exp_resume
+resume: True
+log_file: train_val_log.txt
+gpu_id: 0
+max_epochs: 9
+
+------------------------------------------------------------
+Epoch	Kappa (val)	IoU (val)	F1 (val)	R (val)	P (val)
+4		0.9148		0.8582		0.9237		0.9123		0.9354

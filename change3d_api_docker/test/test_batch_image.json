@@ -1,0 +1,7 @@
+{
+    "mode": "batch_image",
+    "before_path": "C:/Users/qianx/Desktop/test_image1",
+    "after_path": "C:/Users/qianx/Desktop/test_image2",
+    "output_path": "C:/Users/qianx/Desktop/result_image"
+}
+

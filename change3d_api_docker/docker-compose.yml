@@ -1,0 +1,33 @@
+version: '3'
+
+services:
+  change3d-api:
+    build:
+      context: ..
+      dockerfile: ./change3d_api_docker/Dockerfile
+    image: change3d-api-built:latest
+    container_name: change3d-api
+    ports:
+      - "8000:8000"
+    volumes:
+      # 挂载API模块本身
+      - ./:/app/change3d_api_docker
+      - ../change3d_docker:/app/change3d_docker
+      # 共享数据目录
+      - ./t1:/app/change3d_api_docker/t1
+      - ./t2:/app/change3d_api_docker/t2
+      - ./output:/app/change3d_api_docker/output
+      # 检查点目录如果需要运行时访问，仍然可以挂载，但要确保 Dockerfile 中也复制了需要的基础文件
+      - ../change3d_docker/checkpoint:/app/change3d_docker/checkpoint 
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - PYTHONPATH=/app
+      - KMP_DUPLICATE_LIB_OK=TRUE
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+#"上传-处理-下载"
