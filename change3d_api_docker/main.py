@@ -88,36 +88,13 @@ def health_check():
 # 任务状态跟踪
 detection_tasks: Dict[str, Dict[str, Any]] = {}
 
-# 定义原始路径输入模型
-class OriginalOutputPathInput(BaseModel):
-    original_user_output_path: str  # 用户的原始本机输出路径
-
-@app.put("/tasks/{task_id}/original_output", status_code=200, summary="设置任务的原始输出路径")
-async def set_task_original_output(task_id: str, data: OriginalOutputPathInput):
-    """
-    允许外部调用者为已创建的任务设置其对应的用户原始输出路径。
-    这通常在 /detect/... 调用成功返回 task_id 后立即调用。
-    
-    ** 此API已废弃，复制操作将由外部进程完成 **
-    """
-    return {"message": "此API已废弃，复制操作将由外部进程完成"}
-
 @app.get("/history")
 def get_request_history():
     """获取最近的请求历史"""
+    global request_history # Need to declare if it's modified/accessed globally
+    if 'request_history' not in globals():
+        request_history = [] # Initialize if it doesn't exist
     return {"history": request_history[-10:]}  # 最近10条
-
-# 接口主函数 - 路径处理
-@app.post("/process/")
-async def process_paths(data: PathInput):
-    """处理路径接口"""
-    # 这里只是简单返回，实际应用中可能不需要这个端点或需要更复杂的逻辑
-    return {
-        "mode": data.mode,
-        "before_path": data.before_path,
-        "after_path": data.after_path,
-        "output_path": data.output_path
-    }
 
 # 添加变化检测接口
 @app.post("/detect/single_image", response_model=DetectionResponse)
@@ -340,7 +317,6 @@ async def detect_batch_rasters(data: PathInput, background_tasks: BackgroundTask
         "message": "批量栅格影像变化检测任务已创建，等待执行",
         "output_path": data.output_path
     }
-
 
 async def run_detection_task(task_id: str, mode_str: str, before_path: str, \
                            after_path: str, processed_paths: dict):

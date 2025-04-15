@@ -16,7 +16,6 @@ import logging
 
 # 导入ZoomableLabel类
 from zhuyaogongneng_docker.display import ZoomableLabel
-
 # 创建线程间通信的信号桥
 class ThreadCommunicator(QObject):
     """用于线程间通信的对象"""
@@ -25,14 +24,8 @@ class ThreadCommunicator(QObject):
 # 全局信号桥实例
 thread_communicator = ThreadCommunicator()
 
-# 导入路径连接器
-try:
-    from change3d_api_docker.path_connector import path_connector
-except ImportError:
-    try:
-        from change3d_api_docker.path_connector import path_connector
-    except ImportError:
-        path_connector = None
+# 导入检测客户端
+from zhuyaogongneng_docker.function.detection_client import detect_changes, check_connection
 
 class ExecuteChangeDetectionTask:
     def __init__(self, navigation_functions):
@@ -74,9 +67,6 @@ class ExecuteChangeDetectionTask:
             message: 消息内容
             level_or_show_in_ui: 日志级别字符串("START"、"COMPLETE"、"ERROR")或布尔值
         """
-        # 不再打印到控制台
-        # print(message)
-        
         # 确定显示在UI中的标志和日志级别
         show_in_ui = True
         level = None
@@ -150,32 +140,30 @@ class ExecuteChangeDetectionTask:
             
             self.log_message("开始执行图像变化检测，请稍后...", "START")
 
-            # 先通过path_connector处理路径
-            if path_connector is None:
-                self.log_message("错误: 找不到path_connector模块", "ERROR")
+            try:
+                task_result = detect_changes(
+                    before_path=before_path,
+                    after_path=after_path,
+                    output_path=output_path,
+                    mode="single_image" # 明确模式为 single_image
+                )
+            except Exception as e:
+                self.log_message(f"错误: 调用变化检测接口失败: {str(e)}", "ERROR")
                 thread_communicator.display_result_signal.emit(None)
                 return
-
-            # 使用path_connector的detect_changes方法，它会处理路径、执行检测并等待完成
-            task_result = path_connector.detect_changes(
-                before_path=before_path,
-                after_path=after_path,
-                output_path=output_path,
-                mode="single_image" # 明确模式为 single_image
-            )
         
-            # --- 直接处理 detect_changes 返回的最终结果 --- 
-            logging.info(f"### [Client Single Image] Received final task_result: {task_result}") # ADDED LOG
+            # 处理检测结果
+            logging.info(f"### [Client Single Image] Received task_result: {task_result}")
             
-            # 从最终结果中提取重命名后的显示图像路径
+            # 从结果中提取重命名后的显示图像路径
             display_image_path = ""
             final_status = task_result.get("status")
 
             if final_status == "completed":
                 display_image_path = task_result.get("display_image_path")
-                logging.info(f"### [Client Single Image] Task COMPLETED. Display path: {display_image_path}") # ADDED LOG
+                logging.info(f"### [Client Single Image] Task COMPLETED. Display path: {display_image_path}")
             else:
-                 logging.warning(f"### [Client Single Image] Task status is NOT completed: {final_status}") # ADDED LOG
+                 logging.warning(f"### [Client Single Image] Task status is NOT completed: {final_status}")
             
             # 检查路径是否存在
             if not display_image_path or not os.path.exists(display_image_path):
@@ -196,7 +184,7 @@ class ExecuteChangeDetectionTask:
             self.log_message("图像变化检测完成！", "COMPLETE")
 
         except Exception as e:
-            logging.error(f"### [Client Single Image] Error in _execute_detection: {e}", exc_info=True) # ADDED LOG
+            logging.error(f"### [Client Single Image] Error in _execute_detection: {e}", exc_info=True)
             self.log_message(f"变化检测过程中出错: {str(e)}", "ERROR")
             thread_communicator.display_result_signal.emit(None) # 发送 None 表示失败
         
@@ -268,7 +256,6 @@ class ExecuteChangeDetectionTask:
                 
         except Exception as e:
             self.log_message(f"显示结果图像时出错: {str(e)}", True)
-            # 不再打印堆栈跟踪到控制台
             return False
 
 
@@ -290,7 +277,6 @@ class ExecuteChangeDetectionTask:
             if hasattr(self.navigation_functions, 'set_result_image'):
                 # 使用新添加的set_result_image方法，更好地处理缩放
                 result = self.navigation_functions.set_result_image(result_img, 'memory_image')
-                # 不再输出到控制台
                 return result
             else:
                 # 兼容旧版本，直接设置变量

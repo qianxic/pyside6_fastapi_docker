@@ -29,7 +29,7 @@ from osgeo import gdal
 import random  # 导入随机模块用于处理策略
 from .detection import RasterChangeDetection, GDAL_AVAILABLE
 import logging  # Added import for logging
-
+from zhuyaogongneng_docker.function.detection_client import detect_changes, check_connection
 ShapefileGenerator = None
 api_manager = None
 
@@ -161,25 +161,8 @@ class RasterBatchProcessor:
             # 确保输出目录存在
             os.makedirs(abs_output_dir, exist_ok=True)
             
-            # 导入并检查path_connector
-            try:
-                from change3d_api_docker.path_connector import path_connector
-            except ImportError:
-                try:
-                    from zhuyaogongneng_docker.function.raster.detection import path_connector
-                except ImportError:
-                    path_connector = None
-                
-            if path_connector is None:
-                self._add_log("警告: API路径连接器未初始化")
-                QMessageBox.critical(self.dialog, "错误", "API连接器未初始化，无法执行批处理")
-                if start_btn:
-                    start_btn.setEnabled(True)
-                    start_btn.setText("开始执行")
-                return
-                
             # 检查API连接
-            if not path_connector.check_connection():
+            if not check_connection():
                 self._add_log("警告: 无法连接到API服务器")
                 QMessageBox.critical(self.dialog, "错误", "无法连接到API服务器，请检查服务是否启动")
                 if start_btn:
@@ -187,16 +170,14 @@ class RasterBatchProcessor:
                     start_btn.setText("开始执行")
                 return
 
-            # 先处理路径
-            processed_paths = path_connector.process_paths(abs_before_dir, abs_after_dir, abs_output_dir)
-            self._add_log(f"路径处理完成")
+            # self._add_log(f"服务正常，开始准备批处理") # REMOVED
                 
             # 构建API请求数据
             data = {
                 "mode": "batch_raster",  # 设置模式为批量栅格处理
-                "before_path": processed_paths.get("before_path", abs_before_dir),
-                "after_path": processed_paths.get("after_path", abs_after_dir),
-                "output_path": processed_paths.get("output_path", abs_output_dir)
+                "before_path": abs_before_dir,
+                "after_path": abs_after_dir,
+                "output_path": abs_output_dir
             }
             
             # 创建批处理处理类
@@ -227,14 +208,14 @@ class RasterBatchProcessor:
                         mode = self.data.get("mode", "batch_raster")
                         
                         # Call detect_changes ONCE and get the final result
-                        self.signals.log.emit(f"调用 path_connector.detect_changes (栅格批处理) 并等待最终结果...")
-                        final_task_result = path_connector.detect_changes(
+                        # self.signals.log.emit(f"调用变化检测接口(栅格批处理)并等待结果...") # REMOVED
+                        final_task_result = detect_changes(
                             before_path=before_path,
                             after_path=after_path,
                             output_path=output_path,
                             mode=mode
                         )
-                        self.signals.log.emit(f"path_connector.detect_changes 返回最终结果: status={final_task_result.get('status')}")
+                        # self.signals.log.emit(f"变化检测接口返回结果: status={final_task_result.get('status')}") # REMOVED
                         
                         # 获取最终的 task_id
                         final_task_id = final_task_result.get("task_id", "未知TaskID")
@@ -887,6 +868,17 @@ class RasterBatchProcessor:
             # 确保输出目录存在
             os.makedirs(abs_output_dir, exist_ok=True)
             
+            # 检查API连接
+            if not check_connection():
+                self._add_log("警告: 无法连接到API服务器")
+                QMessageBox.critical(self.dialog, "错误", "无法连接到API服务器，请检查服务是否启动")
+                if start_btn:
+                    start_btn.setEnabled(True)
+                    start_btn.setText("开始执行")
+                return
+
+            # self._add_log(f"服务正常，开始准备批处理") # REMOVED
+                
             # 构建API请求数据
             data = {
                 "mode": "batch_raster",  # 设置模式为批量栅格处理
@@ -894,32 +886,6 @@ class RasterBatchProcessor:
                 "after_path": abs_after_dir,
                 "output_path": abs_output_dir
             }
-            
-            # 导入并检查path_connector
-            try:
-                from change3d_api_docker.path_connector import path_connector
-            except ImportError:
-                try:
-                    from zhuyaogongneng_docker.function.raster.detection import path_connector
-                except ImportError:
-                    path_connector = None
-                
-            if path_connector is None:
-                self._add_log("警告: API路径连接器未初始化")
-                QMessageBox.critical(self.dialog, "错误", "API连接器未初始化，无法执行批处理")
-                if start_btn:
-                    start_btn.setEnabled(True)
-                    start_btn.setText("开始执行")
-                return
-                
-            # 检查API连接
-            if not path_connector.check_connection():
-                self._add_log("警告: 无法连接到API服务器")
-                QMessageBox.critical(self.dialog, "错误", "无法连接到API服务器，请检查服务是否启动")
-                if start_btn:
-                    start_btn.setEnabled(True)
-                    start_btn.setText("开始执行")
-                return
             
             # 创建批处理处理类
             class BatchSignals(QObject):
@@ -949,13 +915,14 @@ class RasterBatchProcessor:
                         mode = self.data.get("mode", "batch_raster")
                         
                         # Call detect_changes ONCE and get the final result
-                        self.signals.log.emit(f"等待最终结果...")
-                        final_task_result = path_connector.detect_changes(
+                        # self.signals.log.emit(f"调用变化检测接口(栅格批处理)并等待结果...") # REMOVED
+                        final_task_result = detect_changes(
                             before_path=before_path,
                             after_path=after_path,
                             output_path=output_path,
                             mode=mode
                         )
+                        # self.signals.log.emit(f"变化检测接口返回结果: status={final_task_result.get('status')}") # REMOVED
                         
                         # 获取最终的 task_id
                         final_task_id = final_task_result.get("task_id", "未知TaskID")

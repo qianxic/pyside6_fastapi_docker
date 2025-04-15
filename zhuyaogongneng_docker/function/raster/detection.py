@@ -16,7 +16,6 @@ import cv2
 from pathlib import Path
 import threading
 import logging
-
 from PySide6.QtCore import QObject, Signal, QThread
 from PySide6.QtWidgets import QMessageBox, QFileDialog
 from PySide6.QtGui import QPixmap, QImage
@@ -24,13 +23,8 @@ from osgeo import gdal
 GDAL_AVAILABLE = True
 
 # 尝试导入路径连接器
-try:
-    from change3d_api_docker.path_connector import path_connector
-except ImportError:
-    try:
-        from change3d_api_docker.path_connector import path_connector
-    except ImportError:
-        path_connector = None
+from zhuyaogongneng_docker.function.detection_client import detect_changes, check_connection
+
 
 # 尝试导入GDAL以支持栅格影像处理
 
@@ -46,13 +40,7 @@ class RasterChangeDetection:
         self.threshold = 30
         
         # 检查API可用性
-        self.api_available = False
-        try:
-            from change3d_api_docker.path_connector import path_connector
-            if path_connector is not None:
-                self.api_available = True
-        except ImportError:
-            pass
+        self.api_available = check_connection()
         
         # 检查GDAL是否可用
         if not GDAL_AVAILABLE:
@@ -132,22 +120,19 @@ class RasterChangeDetection:
             
             self.log_message("开始执行栅格变化检测，请稍后...", "START")
             
-            # 检查path_connector是否可用
-            if path_connector is None:
-                self.log_message("错误: 找不到path_connector模块", "ERROR")
-                # Need a way to signal failure back to the main thread if needed
-                # self.on_detection_finished((False, None)) # Assuming this method exists and handles UI update
+            try:
+                # 调用检测接口执行变化检测
+                task_result = detect_changes(
+                    before_path=before_path,
+                    after_path=after_path,
+                    output_path=output_path,
+                    mode="single_raster"
+                )
+            except Exception as e:
+                self.log_message(f"错误: 调用变化检测接口失败: {str(e)}", "ERROR")
+                self.on_detection_finished((False, None))
                 return
             
-            # 使用path_connector的detect_changes方法，它会处理路径、执行检测并等待完成
-            task_result = path_connector.detect_changes(
-                before_path=before_path,
-                after_path=after_path,
-                output_path=output_path,
-                mode="single_raster"
-            )
-            
-
             # -----------------------------------------------------
 
             # --- 直接处理 detect_changes 返回的最终结果 --- 

@@ -20,15 +20,9 @@ from PIL import Image
 from PySide6.QtWidgets import QFileDialog, QMessageBox, QApplication, QProgressDialog, QProgressBar, QHBoxLayout, QPushButton
 from PySide6.QtCore import Qt, Signal, QObject, QThread, QMetaObject, QTimer, QCoreApplication, Q_ARG, Slot
 import gc
-
+from zhuyaogongneng_docker.function.detection_client import detect_changes, check_connection, get_api_base_url
 # 导入API路径连接器
-try:
-    from change3d_api_docker.path_connector import path_connector
-except ImportError:
-    try:
-        from change3d_api_docker.path_connector import path_connector
-    except ImportError:
-        path_connector = None
+
 
 # 尝试导入Qt相关模块
 from PySide6.QtCore import (QObject, Signal, Qt, QThread, QTimer,
@@ -127,7 +121,7 @@ class BatchProcessingDialog(QDialog):
         self.is_shutting_down = False
         
         # 移除API可用性检查 - 将在点击执行按钮时检查
-        self.api_available = path_connector is not None
+        self.api_available = detect_changes is not None
         # self.api_connected = False # 延迟检查
         
         # 注册窗口关闭时的资源清理
@@ -780,13 +774,40 @@ class BatchProcessingDialog(QDialog):
         """实际添加日志的实现"""
         # 已禁用日志输出
         pass
-            
 
+    def _add_log(self, message):
+        """添加日志消息到预览列表 ( mimicking raster processor )"""
+        try:
+            # 确保在UI线程中调用
+            if QThread.currentThread() != QCoreApplication.instance().thread():
+                QMetaObject.invokeMethod(
+                    self,
+                    "_add_log_in_main_thread",
+                    Qt.QueuedConnection,
+                    Q_ARG(str, message)
+                )
+            else:
+                self._add_log_in_main_thread(message)
+        except Exception as e:
+            print(f"添加日志失败: {str(e)}") # Keep a print for critical errors
+
+    @Slot(str)
+    def _add_log_in_main_thread(self, message):
+        """在主线程中添加日志到 preview_list"""
+        try:
+            # Use message directly, without timestamp
+            log_entry = message
+            # 添加到预览列表
+            self.preview_list.addItem(log_entry)
+            # 滚动到底部
+            self.preview_list.scrollToBottom()
+        except Exception as e:
+            print(f"在主线程中添加日志失败: {str(e)}") # Keep a print for critical errors
 
     def _update_api_batch_paths(self):
         """更新API批处理路径，当三个目录都已设置时调用"""
         try:
-            if path_connector is not None and path_connector.check_connection():
+            if check_connection():
                 # 确保三个目录都已设置
                 if not (hasattr(self, 'before_image_dir') and self.before_image_dir and 
                         hasattr(self, 'after_image_dir') and self.after_image_dir and 
@@ -802,12 +823,8 @@ class BatchProcessingDialog(QDialog):
                 if not os.path.exists(abs_output_dir):
                     os.makedirs(abs_output_dir, exist_ok=True)
                 
-                # 直接调用API进行批处理路径处理
-                path_connector.process_batch_image_paths(
-                    abs_before_dir,
-                    abs_after_dir,
-                    abs_output_dir
-                )
+                # 记录路径已设置
+                self.preview_list.addItem(f"已设置批处理路径，API连接正常")
                 return True
                 
         except Exception:
@@ -824,31 +841,21 @@ class BatchProcessingDialog(QDialog):
         
         # 清空日志并添加开始消息
         self.preview_list.clear()
-        self.preview_list.addItem("开始批量图像变化检测处理，这可能需要一点时间...") # ADDED START MESSAGE
+        self._add_log("开始批量图像变化检测处理，这可能需要一点时间...")
 
-        # 检查API可用性
-        if path_connector is None:
-            error_msg = "警告: API路径连接器未初始化"
-            self.preview_list.addItem(error_msg)
-            QMessageBox.critical(self, "错误", "API连接器未初始化，无法执行批处理")
-            if hasattr(self, 'start_button'):
-                self.start_button.setEnabled(True)
-                self.start_button.setText("开始执行")
-            return
-            
-        if not path_connector.check_connection():
+        # 检查API连接
+        if not check_connection():
             # 使用与栅格一致的措辞
             error_msg = "警告: 无法连接到API服务器"
-            self.preview_list.addItem(error_msg)
+            self._add_log(error_msg)
             QMessageBox.critical(self, "错误", "无法连接到API服务器，请检查服务是否启动")
             if hasattr(self, 'start_button'):
                 self.start_button.setEnabled(True)
                 self.start_button.setText("开始执行")
             return
-        
+
         try:
             # 构建请求数据
-            # ... (路径处理保持不变)
             abs_before_dir = os.path.abspath(self.before_image_dir).replace("\\", "/")
             abs_after_dir = os.path.abspath(self.after_image_dir).replace("\\", "/")
             abs_output_dir = os.path.abspath(self.output_dir).replace("\\", "/")
@@ -864,7 +871,7 @@ class BatchProcessingDialog(QDialog):
             }
 
             # 向API发送批处理请求
-            endpoint_url = f"{path_connector.api_url}/detect/batch_image" # This might be unused now
+            endpoint_url = f"{get_api_base_url()}/detect/batch_image" # 获取API基础URL
             
             # 创建工作线程
             self.batch_thread = QThread()
@@ -872,22 +879,19 @@ class BatchProcessingDialog(QDialog):
             self.batch_worker.moveToThread(self.batch_thread)
             
             # 连接信号
-            self.batch_thread.started.connect(self.batch_worker.run)
             self.batch_worker.signals.finished.connect(self.on_batch_api_result)
             self.batch_worker.signals.error.connect(self.on_batch_api_error)
-            # 使用与栅格一致的 lambda 连接日志信号
-            self.batch_worker.signals.log.connect(lambda msg: self.preview_list.addItem(msg)) 
-            self.batch_worker.signals.finished.connect(self.batch_thread.quit)
+            self.batch_worker.signals.log.connect(self._add_log)
+            self.batch_thread.started.connect(self.batch_worker.run)
             
             # 启动线程
             self.batch_thread.start()
             
         except Exception as e:
-            import traceback
             error_info = traceback.format_exc()
             error_msg = f"准备批处理任务时出错: {str(e)}"
-            self.preview_list.addItem(f"### {error_msg}") # Add ### prefix like raster
-            self.preview_list.addItem(error_info) # Keep traceback for detail
+            self._add_log(f"### {error_msg}")
+            self._add_log(error_info)
             QMessageBox.critical(self, "错误", error_msg)
             
             # 重新启用开始按钮
@@ -905,14 +909,14 @@ class BatchProcessingDialog(QDialog):
             if task_result and task_result.get("status") == "completed":
                 # ADDED LOG inside completed block
                 display_path = task_result.get("display_image_path")
-                self.preview_list.addItem(f"✅ 批量处理任务已完成!") # Adjusted text
-                QMessageBox.information(self, "完成", f"批量处理任务成功完成！")
+                self._add_log(f"✅ 批量图像处理任务已完成!")
+                QMessageBox.information(self, "完成", f"批量图像处理任务成功完成！")
                 # TODO: Add logic here to actually display the image using display_path if needed
             else:
                 # ADDED LOG for failure/other status
                 error_detail = task_result.get("message") if task_result else "无结果"
                 error_msg = f"批处理任务 {task_id} 失败或状态异常: {task_result.get('status', '未知状态')}, 详情: {error_detail}"
-                self.preview_list.addItem(f"### {error_msg}")
+                self._add_log(f"### {error_msg}")
                 QMessageBox.warning(self, "失败", error_msg)
         
 
@@ -936,7 +940,7 @@ class BatchProcessingDialog(QDialog):
     def on_batch_api_error(self, error_msg):
         """处理批处理错误"""
         # 使用与栅格一致的错误消息格式
-        self.preview_list.addItem(f"### {error_msg}")
+        self._add_log(f"### {error_msg}")
         QMessageBox.critical(self, "API错误", error_msg) # Keep title as API错误 or change to 错误?
         
         # 重新启用开始按钮
@@ -1224,7 +1228,6 @@ class BatchProcessingDialog(QDialog):
                 self.grid_thread.quit()
                 if not self.grid_thread.wait(3000):  # 等待最多3秒
                     self.grid_thread.terminate()
-                    # 已禁用日志输出
             
             # 清理引用
             self.grid_worker = None
@@ -1417,7 +1420,7 @@ class BatchProcessing:
         self.batch_dialog = None
         
         # 检查API可用性
-        self.api_available = path_connector is not None
+        self.api_available = detect_changes is not None
         if self.api_available:
             self.navigation_functions.log_message("API路径处理服务已加载")
         
@@ -1497,7 +1500,7 @@ class GridCropWorker(QObject):
             self.signals.finished.emit()
             with self._lock:
                 self.is_running = False
-            return
+                return
 
         # Simplified worker count
         num_workers = max(1, (os.cpu_count() or 1) -1) # Default to CPU count - 1
@@ -1632,7 +1635,7 @@ class BatchImageProcessingWorker(QObject):
         """初始化批处理工作线程"""
         super().__init__()
         self.data = data
-        self.endpoint_url = endpoint_url # May not be needed if using path_connector.detect_changes
+        self.endpoint_url = endpoint_url # May not be needed if using detect_changes.detect_changes
         self.signals = BatchImageProcessingSignals()
         self.is_running = False
     
@@ -1643,16 +1646,8 @@ class BatchImageProcessingWorker(QObject):
             
         self.is_running = True
         try:
-            # 导入路径连接器 (keep local import just in case)
-            try:
-                from change3d_api_docker.path_connector import path_connector
-            except ImportError:
-                try:
-                    from change3d_api_docker.path_connector import path_connector
-                except ImportError:
-                    path_connector = None
-                    
-            if path_connector is None or not path_connector.check_connection():
+            # 检查API连接
+            if not check_connection():
                 self.signals.error.emit("无法连接到API服务器，请检查连接后重试")
                 self.is_running = False
                 return
@@ -1664,8 +1659,9 @@ class BatchImageProcessingWorker(QObject):
             mode = self.data.get("mode", "batch_image")
 
 
-            self.signals.log.emit(f"等待最终结果...")
-            final_task_result = path_connector.detect_changes(
+            # self.signals.log.emit(f"调用变化检测接口(图像批处理)并等待结果...") # REMOVED
+
+            final_task_result = detect_changes(
                 before_path=before_path,
                 after_path=after_path,
                 output_path=output_path,
@@ -1674,6 +1670,8 @@ class BatchImageProcessingWorker(QObject):
 
             # 获取最终的 task_id
             final_task_id = final_task_result.get("task_id", "未知TaskID")
+
+            # self.signals.log.emit(f"变化检测接口返回结果: status={final_task_result.get('status')}") # REMOVED
 
             # 返回最终结果
             self.signals.finished.emit({
