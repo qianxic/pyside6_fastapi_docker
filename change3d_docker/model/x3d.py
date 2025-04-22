@@ -19,6 +19,8 @@ from pytorchvideo.models.net import Net
 from pytorchvideo.models.resnet import BottleneckBlock, ResBlock, ResStage
 from pytorchvideo.models.stem import ResNetBasicStem
 
+# 注释：这个文件定义了构建 X3D 视频识别模型的各个组件和最终网络结构。
+# X3D 是一种高效的视频识别架构，通过在宽度、深度和空间分辨率等维度上进行扩展得到。
 
 def create_x3d_stem(
     *,
@@ -36,7 +38,9 @@ def create_x3d_stem(
     activation: Callable = nn.ReLU,
 ) -> nn.Module:
     """
-    Creates the stem layer for X3D. It performs spatial Conv, temporal Conv, BN, and Relu.
+    创建 X3D 模型的 Stem 层（初始卷积层）。
+    它执行空间卷积、时间卷积、批归一化和激活函数。
+    这是网络处理输入视频的第一步。
 
     ::
 
@@ -124,8 +128,12 @@ def create_x3d_bottleneck_block(
     inner_act: Callable = Swish,
 ) -> nn.Module:
     """
-    Bottleneck block for X3D: a sequence of Conv, Normalization with optional SE block,
-    and Activations repeated in the following order:
+    创建 X3D 使用的 Bottleneck 块。
+    这是一个典型的 ResNet Bottleneck 结构，包含三个卷积层：
+    1. 1x1x1 卷积 (降维)
+    2. 3x3x3 卷积 (核心特征提取，使用分组卷积)
+    3. 1x1x1 卷积 (升维)
+    中间可能包含 Squeeze-and-Excitation (SE) 模块和 Swish 激活函数。
 
     ::
 
@@ -253,9 +261,11 @@ def create_x3d_res_block(
     inner_act: Callable = Swish,
 ) -> nn.Module:
     """
-    Residual block for X3D. Performs a summation between an identity shortcut in branch1 and a
-    main block in branch2. When the input and output dimensions are different, a
-    convolution followed by a normalization will be performed.
+    创建 X3D 的 Residual 块 (残差块)。
+    它包含一个主要的计算分支 (branch2，通常是一个 Bottleneck 块)
+    和一个可选的快捷连接分支 (branch1，用于恒等映射或维度匹配)。
+    两个分支的结果会相加，然后通过激活函数。
+    这是构成 ResNet/X3D 基本结构单元。
 
     ::
 
@@ -331,7 +341,7 @@ def create_x3d_res_block(
 def create_x3d_res_stage(
     *,
     # Stage configs.
-    depth: int,
+    depth: int, # 当前 Stage 包含的 ResBlock 数量
     # Bottleneck Block configs.
     dim_in: int,
     dim_inner: int,
@@ -339,7 +349,7 @@ def create_x3d_res_stage(
     bottleneck: Callable = create_x3d_bottleneck_block,
     # Conv configs.
     conv_kernel_size: Tuple[int] = (3, 3, 3),
-    conv_stride: Tuple[int] = (1, 2, 2),
+    conv_stride: Tuple[int] = (1, 2, 2), # 第一个 block 的步长，用于下采样
     # Norm configs.
     norm: Callable = nn.BatchNorm3d,
     norm_eps: float = 1e-5,
@@ -350,7 +360,10 @@ def create_x3d_res_stage(
     inner_act: Callable = Swish,
 ) -> nn.Module:
     """
-    Create Residual Stage, which composes sequential blocks that make up X3D.
+    创建 X3D 的一个 Residual Stage (残差阶段)。
+    一个 Stage 由多个顺序连接的 ResBlock 组成。
+    通常，一个 Stage 内的第一个 ResBlock 会使用大于 1 的步长 (stride) 来进行空间或时间的下采样。
+    X3D 模型包含多个这样的 Stage (通常是 4 个，对应 c1 到 c4 特征)。
 
     ::
 
@@ -435,9 +448,10 @@ def create_x3d_head(
     output_with_global_average: bool = True,
 ) -> nn.Module:
     """
-    Creates X3D head. This layer performs an projected pooling operation followed
-    by an dropout, a fully-connected projection, an activation layer and a global
-    spatiotemporal averaging.
+    创建 X3D 的 Head (头部网络)。
+    通常包含全局池化、卷积、Dropout 和一个最终的全连接层，用于分类任务。
+    在我们的变化检测任务中，这个 Head 可能不会被直接使用，
+    因为特征在最后一个 Stage 之后就被提取出来送入解码器了。
 
     ::
 
@@ -544,13 +558,13 @@ def create_x3d(
     *,
     # Input clip configs.
     input_channel: int = 3,
-    input_clip_length: int = 13,
-    input_crop_size: int = 160,
+    input_clip_length: int = 13, # 输入视频剪辑的长度 (时间维度)
+    input_crop_size: int = 160, # 输入视频帧的空间分辨率
     # Model configs.
-    model_num_class: int = 400,
+    model_num_class: int = 400, # 原始分类任务的类别数 (对我们不重要)
     dropout_rate: float = 0.5,
-    width_factor: float = 2.0,
-    depth_factor: float = 2.2,
+    width_factor: float = 2.0, # 宽度扩展因子
+    depth_factor: float = 2.2, # 深度扩展因子
     # Normalization configs.
     norm: Callable = nn.BatchNorm3d,
     norm_eps: float = 1e-5,
@@ -558,36 +572,38 @@ def create_x3d(
     # Activation configs.
     activation: Callable = nn.ReLU,
     # Stem configs.
-    stem_dim_in: int = 12,
+    stem_dim_in: int = 12, # Stem 层的初始通道数 (扩展前)
     stem_conv_kernel_size: Tuple[int] = (5, 3, 3),
-    # stem_conv_stride: Tuple[int] = (1, 2, 2),
-    stem_conv_stride: Tuple[int] = (1, 1, 1),
+    stem_conv_stride: Tuple[int] = (1, 1, 1), # 注意：这里步长被修改为 (1,1,1)，可能为了保留分辨率
     # Stage configs.
-    stage_conv_kernel_size: Tuple[Tuple[int]] = (
+    stage_conv_kernel_size: Tuple[Tuple[int]] = ( # 每个 Stage 中 3x3x3 卷积的核大小
         (3, 3, 3),
         (3, 3, 3),
         (3, 3, 3),
         (3, 3, 3),
     ),
-    stage_spatial_stride: Tuple[int] = (2, 2, 2, 2),
-    stage_temporal_stride: Tuple[int] = (1, 1, 1, 1),
-    bottleneck: Callable = create_x3d_bottleneck_block,
-    bottleneck_factor: float = 2.25,
-    se_ratio: float = 0.0625,
-    inner_act: Callable = Swish,
+    stage_spatial_stride: Tuple[int] = (2, 2, 2, 2), # 每个 Stage 在空间维度上的步长 (下采样因子)
+    stage_temporal_stride: Tuple[int] = (1, 1, 1, 1), # 每个 Stage 在时间维度上的步长
+    bottleneck: Callable = create_x3d_bottleneck_block, # 使用哪个函数创建 Bottleneck 块
+    bottleneck_factor: float = 2.25, # Bottleneck 中间层的扩展因子
+    se_ratio: float = 0.0625, # Squeeze-and-Excitation 模块的比率
+    inner_act: Callable = Swish, # Bottleneck 内部使用的激活函数
     # Head configs.
     head_dim_out: int = 2048,
     head_pool_act: Callable = nn.ReLU,
     head_bn_lin5_on: bool = False,
-    head_activation: Callable = None,
-    head_output_with_global_average: bool = True,
+    head_activation: Callable = None, # Head 的最终激活函数 (我们不需要)
+    head_output_with_global_average: bool = True, # 是否进行全局平均池化 (我们不需要)
 ) -> nn.Module:
     """
-    X3D model builder. It builds a X3D network backbone, which is a ResNet.
+    构建完整的 X3D 模型。
+    这个函数按照 X3D 论文的配置，依次创建 Stem, 多个 Stage, 和 Head，
+    并将它们组合成一个最终的 Net 模型。
 
-    Christoph Feichtenhofer.
-    "X3D: Expanding Architectures for Efficient Video Recognition."
-    https://arxiv.org/abs/2004.04730
+    在我们的变化检测模型中，`Encoder` 类会调用这个函数来创建 X3D 骨干网络。
+    `Encoder.base_forward` 方法会依次调用这个函数返回的 Net 对象中 `blocks` 列表的前 5 个元素
+    （blocks[0] 是 Stem, blocks[1] 到 blocks[4] 是 4 个 Stage），
+    从而提取出对应 c1 到 c4 的特征图。
 
     ::
 
