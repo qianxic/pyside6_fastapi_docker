@@ -1,5 +1,5 @@
 '''
-    四大块，ui、变化检测执行、渔网分割执行、工作线程
+四大块，ui、变化检测执行、渔网分割执行、工作线程
 '''
 
 '''
@@ -1155,6 +1155,11 @@ class RasterBatchProcessor:
     def _start_grid_cropping(self):
         """开始渔网分割处理"""
         try:
+            # 检查是否有正在运行的任务
+            if hasattr(self, 'grid_thread') and self.grid_thread is not None and self.grid_thread.isRunning():
+                QMessageBox.warning(self.dialog, "警告", "已有渔网分割任务正在运行！")
+                return
+                
             # 获取目录路径
             input_dir = self.grid_input_dir_label.text()
             output_dir = self.grid_output_dir_label.text()
@@ -1198,22 +1203,8 @@ class RasterBatchProcessor:
             self.grid_start_button.setEnabled(False)
             self.grid_start_button.setText("处理中...")
             
-            # 如果存在之前的线程，先尝试停止并清理
-            if hasattr(self, 'grid_worker') and self.grid_worker is not None:
-                try:
-                    self.grid_worker.stop()  # 使用stop方法停止任务
-                except:
-                    pass
-                self.grid_worker = None
-                
-            if hasattr(self, 'grid_thread') and self.grid_thread is not None:
-                try:
-                    if self.grid_thread.isRunning():
-                        self.grid_thread.quit()
-                        self.grid_thread.wait(1000)  # 最多等待1秒
-                except:
-                    pass
-                self.grid_thread = None
+            # 在创建新的线程和工作器前，清理旧的资源
+            self._cleanup_grid_resources()
                 
             # 强制垃圾回收
             import gc
@@ -1224,13 +1215,14 @@ class RasterBatchProcessor:
             self._add_grid_log(f"开始渔网分割处理，共 {total_images} 个文件...")
             
             # 创建线程进行处理
-            self.grid_worker = GridCropWorker(self, self.grid_images, output_dir, rows, cols)
+            self.grid_worker = GridCropWorker(self.grid_images, output_dir, rows, cols, self.grid_signals)
             self.grid_thread = QThread()
             self.grid_worker.moveToThread(self.grid_thread)
             
             # 连接信号
             self.grid_thread.started.connect(self.grid_worker.run)
             self.grid_worker.signals.finished.connect(self._on_grid_processing_finished)
+            self.grid_worker.signals.error.connect(self._on_grid_crop_error)
             
             # 启动线程
             self.grid_thread.start()
@@ -1240,13 +1232,81 @@ class RasterBatchProcessor:
             self._add_grid_log(error_msg)
             self._add_grid_log(traceback.format_exc())
             
-            # 显示错误对话框
-            QMessageBox.critical(self.dialog, "错误", f"启动渔网分割失败:\n{str(e)}")
-            
             # 重新启用开始按钮
             self.grid_start_button.setEnabled(True)
             self.grid_start_button.setText("开始执行")
+    
+    def _cleanup_grid_resources(self):
+        """清理渔网分割相关的资源，包括线程、工作对象和信号连接"""
+        try:
+            # 断开所有信号连接
+            if hasattr(self, 'grid_worker') and self.grid_worker is not None:
+                try:
+                    # 显式断开与 grid_worker.signals 的连接
+                    if hasattr(self.grid_worker, 'signals'):
+                        try:
+                            self.grid_worker.signals.finished.disconnect()
+                        except (TypeError, RuntimeError):
+                            # 信号可能未连接或已断开
+                            pass
+                        try:
+                            self.grid_worker.signals.error.disconnect()
+                        except (TypeError, RuntimeError):
+                            # 信号可能未连接或已断开
+                            pass
+                        try:
+                            self.grid_worker.signals.update_progress.disconnect()
+                        except (TypeError, RuntimeError):
+                            # 信号可能未连接或已断开
+                            pass
+                except Exception as e:
+                    # 记录但不抛出异常，确保清理继续
+                    print(f"断开 grid_worker 信号连接时出错: {str(e)}")
             
+            # 断开与 grid_signals 的连接
+            if hasattr(self, 'grid_signals'):
+                try:
+                    self.grid_signals.update_progress.disconnect()
+                except (TypeError, RuntimeError):
+                    # 信号可能未连接或已断开
+                    pass
+                try:
+                    self.grid_signals.finished.disconnect()
+                except (TypeError, RuntimeError):
+                    # 信号可能未连接或已断开
+                    pass
+                try:
+                    self.grid_signals.error.disconnect()
+                except (TypeError, RuntimeError):
+                    # 信号可能未连接或已断开
+                    pass
+                    
+            # 停止工作器
+            if hasattr(self, 'grid_worker') and self.grid_worker is not None:
+                if hasattr(self.grid_worker, 'stop'):
+                    self.grid_worker.stop()
+                self.grid_worker.deleteLater()
+                self.grid_worker = None
+            
+            # 停止线程
+            if hasattr(self, 'grid_thread') and self.grid_thread is not None:
+                if self.grid_thread.isRunning():
+                    self.grid_thread.quit()
+                    if not self.grid_thread.wait(500):  # 等待最多0.5秒
+                        self.grid_thread.terminate()
+                self.grid_thread.deleteLater()
+                self.grid_thread = None
+            
+            # 移除信号对象的引用
+            # self.grid_signals = None  # 不要移除，因为我们在初始化时创建了它，它在类的生命周期内应该保持不变
+            
+            # 强制垃圾回收
+            import gc
+            gc.collect()
+            
+        except Exception as e:
+            print(f"清理渔网分割资源时出错: {str(e)}")
+
     def _on_grid_processing_finished(self):
         """渔网分割处理完成时触发 - 确保在UI线程中执行"""
         try:
@@ -1263,6 +1323,60 @@ class RasterBatchProcessor:
                 self._on_grid_processing_finished_in_main_thread()
         except Exception as e:
             print(f"渔网分割完成回调失败: {str(e)}")
+
+    def _on_grid_processing_finished_in_main_thread(self):
+        """渔网分割处理完成后的回调函数 (在主线程中执行)"""
+        try:
+            self._add_grid_log("=" * 40)
+            self._add_grid_log("渔网分割处理完成！")
+            self._add_grid_log("=" * 40)
+
+            # 首先断开所有信号连接，避免信号累积
+            if hasattr(self, 'grid_worker') and self.grid_worker is not None:
+                try:
+                    # 显式断开信号连接
+                    if hasattr(self.grid_worker, 'signals'):
+                        try:
+                            self.grid_worker.signals.finished.disconnect()
+                        except (TypeError, RuntimeError):
+                            # 信号可能未连接或已断开
+                            pass
+                        try:
+                            self.grid_worker.signals.error.disconnect()
+                        except (TypeError, RuntimeError):
+                            # 信号可能未连接或已断开
+                            pass
+                        try:
+                            self.grid_worker.signals.update_progress.disconnect()
+                        except (TypeError, RuntimeError):
+                            # 信号可能未连接或已断开
+                            pass
+                except Exception as e:
+                    self._add_grid_log(f"断开信号连接时出错: {str(e)}")
+
+            if hasattr(self, 'grid_start_button') and self.grid_start_button:
+                self.grid_start_button.setEnabled(True)
+                self.grid_start_button.setText("开始执行")
+
+            # 清理渔网分割相关的线程和工作对象
+            if hasattr(self, 'grid_worker') and self.grid_worker is not None:
+                self.grid_worker.deleteLater()  # 使用deleteLater确保Qt安全删除
+                self.grid_worker = None
+            if hasattr(self, 'grid_thread') and self.grid_thread is not None:
+                if self.grid_thread.isRunning():
+                    self.grid_thread.quit()
+                    self.grid_thread.wait(500) # 短暂等待线程退出
+                self.grid_thread.deleteLater()
+                self.grid_thread = None
+            
+            QMessageBox.information(self.dialog, "渔网分割完成", "渔网分割处理完成！")
+
+        except Exception as e:
+            error_msg = f"处理渔网分割完成回调时出错: {str(e)}"
+            self._add_grid_log(error_msg)
+            import traceback
+            self._add_grid_log(traceback.format_exc())
+            QMessageBox.critical(self.dialog, "回调错误", error_msg)
 
     def _get_system_memory_info(self):
         """获取系统内存信息"""
@@ -1351,6 +1465,11 @@ class RasterBatchProcessor:
                 self._add_grid_log(f"渔网分割进度: {percent}% ({current}/{total})")
         except Exception as e:
             print(f"更新渔网分割进度失败: {str(e)}")
+
+    @Slot(str)
+    def _on_grid_crop_error(self, error_msg: str):
+        """处理渔网分割中单个网格处理的错误信息"""
+        self._add_grid_log(f"错误: {error_msg}")
 
 # 添加渔网分割工作线程相关类
 class GridCropSignals(QObject):
@@ -1520,55 +1639,56 @@ class GridCropWorker(QObject):
                     x_size = width - x_offset if col == cols - 1 else grid_width
                     y_size = height - y_offset if row == rows - 1 else grid_height
 
-                grid_name = f"{base_name}_r{row+1}c{col+1}{ext}"
-                output_file = os.path.join(image_output_dir, grid_name)
+                    if x_size <= 0 or y_size <= 0:
+                        logging.warning(f"Skipping grid {base_name}_r{row+1}c{col+1} ({file_name}) due to invalid dimensions: W={x_size}, H={y_size}")
+                        continue # Skip this grid if dimensions are invalid
+
+                    grid_name = f"{base_name}_r{row+1}c{col+1}{ext}"
+                    output_file = os.path.join(image_output_dir, grid_name)
                 
-                # Use file lock to prevent concurrent writes *to the same conceptual grid file*
-                # Although unlikely with unique names, it's safer with potential retries/complex scenarios
-                with file_lock:
-                    output_dataset = None # Ensure it's reset each loop iteration
-                    try:
-                        output_dataset = driver.Create(output_file, x_size, y_size, bands, datatype)
-                        if output_dataset is None:
-                            # self.signals.error.emit(f"创建网格文件 {grid_name} 失败") # Potentially too noisy
-                            continue # Skip this grid if creation fails
+                    with file_lock:
+                        output_dataset = None # Ensure it's reset each loop iteration
+                        try:
+                            output_dataset = driver.Create(output_file, x_size, y_size, bands, datatype)
+                            if output_dataset is None:
+                                continue # Skip this grid if creation fails
 
-                        temp_datasets.append(output_dataset) # Track for cleanup
+                            temp_datasets.append(output_dataset) # Track for cleanup
 
-                        if has_geo:
-                            new_geo_transform = list(geo_transform)
-                            new_geo_transform[0] = geo_transform[0] + x_offset * geo_transform[1]
-                            new_geo_transform[3] = geo_transform[3] + y_offset * geo_transform[5]
-                            output_dataset.SetGeoTransform(tuple(new_geo_transform))
-                            output_dataset.SetProjection(projection)
+                            if has_geo:
+                                new_geo_transform = list(geo_transform)
+                                new_geo_transform[0] = geo_transform[0] + x_offset * geo_transform[1]
+                                new_geo_transform[3] = geo_transform[3] + y_offset * geo_transform[5]
+                                output_dataset.SetGeoTransform(tuple(new_geo_transform))
+                                output_dataset.SetProjection(projection)
 
-                        for band_idx in range(1, bands + 1):
-                            output_band = output_dataset.GetRasterBand(band_idx)
-                            input_band = dataset.GetRasterBand(band_idx)
-                            nodata_value = input_band.GetNoDataValue()
-                            if nodata_value is not None:
-                                output_band.SetNoDataValue(nodata_value)
+                            for band_idx in range(1, bands + 1):
+                                output_band = output_dataset.GetRasterBand(band_idx)
+                                input_band = dataset.GetRasterBand(band_idx)
+                                nodata_value = input_band.GetNoDataValue()
+                                if nodata_value is not None:
+                                    output_band.SetNoDataValue(nodata_value)
 
-                            # Read directly, no caching/preloading
-                            band_data = input_band.ReadAsArray(x_offset, y_offset, x_size, y_size)
-                            output_band.WriteArray(band_data)
-                            band_data = None # Hint for GC (Corrected indentation)
+                                # Read directly, no caching/preloading
+                                band_data = input_band.ReadAsArray(x_offset, y_offset, x_size, y_size)
+                                output_band.WriteArray(band_data)
+                                band_data = None # Hint for GC (Corrected indentation)
 
-                        output_dataset.FlushCache()
-                        # output_dataset = None # Explicitly release reference NOW handled in finally
-                        successful_grids += 1
+                            output_dataset.FlushCache()
+                            # output_dataset = None # Explicitly release reference NOW handled in finally
+                            successful_grids += 1
 
-                    except Exception as grid_e:
-                        # Log error for this specific grid but continue
-                        # self.signals.error.emit(f"处理网格 r{row+1}c{col+1} ({file_name}) 失败: {grid_e}") # Too noisy potentially
-                        pass # Silently continue for now (Corrected indentation)
-                    finally:
-                        if output_dataset is not None: # Ensure cleanup if error occurred mid-write or on success
-                            try:
-                                # output_dataset.FlushCache() # Already flushed if successful
-                                output_dataset = None # Release reference
-                            except Exception: # Ignore potential errors during cleanup
-                                pass # (Corrected indentation and structure)
+                        except Exception as grid_e:
+                            # Log error for this specific grid but continue
+                            # self.signals.error.emit(f"处理网格 r{row+1}c{col+1} ({file_name}) 失败: {grid_e}") # Too noisy potentially
+                            pass # Silently continue for now (Corrected indentation)
+                        finally:
+                            if output_dataset is not None: # Ensure cleanup if error occurred mid-write or on success
+                                try:
+                                    # output_dataset.FlushCache() # Already flushed if successful
+                                    output_dataset = None # Release reference
+                                except Exception: # Ignore potential errors during cleanup
+                                    pass # (Corrected indentation and structure)
 
             if successful_grids == total_grids:
                 return True, f"成功处理 {file_name}: {successful_grids} 个网格"

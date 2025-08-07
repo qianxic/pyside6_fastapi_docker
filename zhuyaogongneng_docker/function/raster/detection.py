@@ -72,6 +72,9 @@ class RasterChangeDetection:
             self.log_message("错误: 未导入后时相影像", "ERROR")
             return False
             
+        # 清除之前的结果图像，确保新结果能正确显示
+        self._clear_previous_result()
+            
         # 让用户选择保存文件夹
         default_dir = os.path.dirname(self.navigation_functions.file_path_after)
         output_folder = QFileDialog.getExistingDirectory(None, "选择保存文件夹", default_dir)
@@ -140,10 +143,18 @@ class RasterChangeDetection:
             # 从最终结果中获取重命名后的显示图像路径
             display_image_path = ""
             final_status = task_result.get("status")
+            session_id = task_result.get("session_id")  # 获取session_id用于验证
             vector_files = [] # Initialize vector files list
 
             if final_status == "completed":
                 display_image_path = task_result.get("display_image_path")
+                logging.info(f"### [Client Single Raster] Task COMPLETED. Display path: {display_image_path}, Session ID: {session_id}")
+                
+                # 验证返回的路径确实属于当前任务
+                if session_id and display_image_path and session_id not in os.path.basename(display_image_path):
+                    logging.error(f"### [Client Single Raster] 返回的显示路径不属于当前任务! 路径: {display_image_path}, 当前任务ID: {session_id}")
+                    self.on_detection_finished((False, None))
+                    return
                 
                 # 获取矢量文件列表（路径现在指向最终用户目录下的文件）
                 final_output_dir = task_result.get("output_path")
@@ -280,6 +291,36 @@ class RasterChangeDetection:
                 
         except Exception as e:
             self.log_message(f"显示结果图像出错: {str(e)}", "ERROR")
+
+    def _clear_previous_result(self):
+        """清除之前的结果图像，确保新结果能正确显示"""
+        try:
+            # 清除当前任务实例中的结果图像
+            if hasattr(self, 'result_image'):
+                self.result_image = None
+            
+            # 清除NavigationFunctions中的结果图像
+            if hasattr(self.navigation_functions, 'result_image'):
+                self.navigation_functions.result_image = None
+            if hasattr(self.navigation_functions, 'result_image_path'):
+                self.navigation_functions.result_image_path = None
+            
+            # 清除结果显示标签的内容
+            if hasattr(self.navigation_functions, 'label_result'):
+                if hasattr(self.navigation_functions.label_result, 'clear'):
+                    self.navigation_functions.label_result.clear()
+                    # 设置提示文本
+                    if hasattr(self.navigation_functions.label_result, 'setText'):
+                        self.navigation_functions.label_result.setText("正在处理...")
+            
+            # 强制更新UI
+            from PySide6.QtWidgets import QApplication
+            QApplication.processEvents()
+            
+            self.log_message("已清除之前的结果图像", "INFO")
+            
+        except Exception as e:
+            self.log_message(f"清除之前结果图像时出错: {str(e)}", "WARNING")
     
     def set_detection_parameters(self, threshold=30):
         """设置变化检测参数"""

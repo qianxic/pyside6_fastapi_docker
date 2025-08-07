@@ -56,7 +56,7 @@ class Encoder(nn.Module):
                 print(f'成功加载预训练权重: {args.pretrained}, 加载信息: {msg}.')
             else:
                 # 如果未提供或找不到预训练权重，则使用随机初始化
-                print(f"未找到预训练权重或未指定，将使用随机初始化。")
+                pass
         except Exception as e:
             # 处理加载过程中可能出现的异常
             print(f"加载预训练权重失败: {e}")
@@ -246,7 +246,7 @@ class Trainer(nn.Module):
                 # 使用变化检测解码器 ChangeDecoder
                 # has_sigmoid=True 表示解码器输出会经过 Sigmoid 激活
                 self.decoder = ChangeDecoder(args, in_dim=self.embed_dims, has_sigmoid=True)
-                print("初始化 Binary Change Detection 解码器")
+                pass
                 # 初始化解码器的权重
                 weight_init(self.decoder)
 

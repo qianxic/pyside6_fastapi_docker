@@ -10,19 +10,24 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # 挂载API模块本身
+      # 修改挂载配置，使用完整路径
       - ./:/app/change3d_api_docker
       - ../change3d_docker:/app/change3d_docker
-      # 共享数据目录
-      - ./t1:/app/change3d_api_docker/t1
-      - ./t2:/app/change3d_api_docker/t2
-      - ./output:/app/change3d_api_docker/output
-      # 检查点目录如果需要运行时访问，仍然可以挂载，但要确保 Dockerfile 中也复制了需要的基础文件
-      - ../change3d_docker/checkpoint:/app/change3d_docker/checkpoint 
+      # 共享数据目录 - 确保写权限
+      - ./t1:/app/change3d_api_docker/t1:rw
+      - ./t2:/app/change3d_api_docker/t2:rw
+      - ./output:/app/change3d_api_docker/output:rw
+      # 检查点目录
+      - ../change3d_docker/checkpoint:/app/change3d_docker/checkpoint:ro
     environment:
       - CUDA_VISIBLE_DEVICES=0
       - PYTHONPATH=/app
       - KMP_DUPLICATE_LIB_OK=TRUE
+      # 添加文件权限环境变量
+      - UMASK=0000
+      # 添加调试环境变量
+      - DEBUG=1
+      - LOG_LEVEL=DEBUG
     deploy:
       resources:
         reservations:

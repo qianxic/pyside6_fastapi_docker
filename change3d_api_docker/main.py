@@ -326,9 +326,31 @@ async def run_detection_task(task_id: str, mode_str: str, before_path: str, \
 
     # 1. 检查文件在容器内是否存在 (带短暂延迟)
     try:
-        await asyncio.sleep(0.8) # 增加一点延迟以确保文件系统同步
+        await asyncio.sleep(1.0) # 增加延迟以确保文件系统同步
         before_exists = os.path.exists(before_path)
         after_exists = os.path.exists(after_path)
+        
+        # 添加详细的调试日志
+        logging.info(f"任务 {task_id} 文件检查: Before='{before_path}' (存在:{before_exists}), After='{after_path}' (存在:{after_exists})")
+        
+        # 如果文件不存在，尝试列出目录内容进行调试
+        if not before_exists:
+            before_dir = os.path.dirname(before_path)
+            if os.path.exists(before_dir):
+                try:
+                    before_dir_contents = os.listdir(before_dir)
+                    logging.info(f"Before目录 '{before_dir}' 内容: {before_dir_contents}")
+                except Exception as e:
+                    logging.error(f"无法列出Before目录内容: {str(e)}")
+        
+        if not after_exists:
+            after_dir = os.path.dirname(after_path)
+            if os.path.exists(after_dir):
+                try:
+                    after_dir_contents = os.listdir(after_dir)
+                    logging.info(f"After目录 '{after_dir}' 内容: {after_dir_contents}")
+                except Exception as e:
+                    logging.error(f"无法列出After目录内容: {str(e)}")
 
         if not before_exists or not after_exists:
             error_msg = f"任务 {task_id} 失败：输入文件在容器内未找到。\
