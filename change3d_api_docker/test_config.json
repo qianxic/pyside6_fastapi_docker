@@ -1,0 +1,33 @@
+{
+  "api_config": {
+    "base_url": "http://localhost:8000",
+    "timeout": 300,
+    "retry_interval": 5
+  },
+  "test_data": {
+    "root_path": "G:/1代码/开发/RSIIS/遥感影像变化检测系统V1.1/change3d_docker/dataes_test/val",
+    "t1_dir": "t1",
+    "t2_dir": "t2",
+    "label_dir": "label"
+  },
+  "output_config": {
+    "output_dir": "test_outputs",
+    "single_image_output": "single_image_result_{basename}.png",
+    "single_raster_output": "single_raster_result_{basename}.tif",
+    "batch_image_output": "batch_image_results",
+    "batch_raster_output": "batch_raster_results"
+  },
+  "test_cases": {
+    "health_check": true,
+    "single_image": true,
+    "single_raster": true,
+    "batch_image": true,
+    "batch_raster": true,
+    "task_status_queries": true
+  },
+  "logging": {
+    "level": "INFO",
+    "log_file": "api_test.log",
+    "console_output": true
+  }
+}

@@ -4,11 +4,12 @@
 # 使用滑动窗口方法，将大图像分割成小块进行推理，然后融合结果
 
 # 单图像推理示例:
+
 '''
-python scripts_app/large_image_BCD.py `
-  --before_path "dataes/test/t1/test_3.png" `
-  --after_path "dataes/test/t2/test_3.png" `
-  --output_path "output.png"
+python change3d_docker\scripts_app\large_image_BCD.py `
+  --before_path "change3d_docker\\dataes\\t1\\train_1_00016.png" `
+  --after_path "change3d_docker\\dataes\\t2\\train_1_00016.png" `
+  --output_path "change3d_docker\\dataes\\output\\train_1_00016.png"
 '''
 
 import os

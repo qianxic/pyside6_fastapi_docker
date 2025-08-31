@@ -1,0 +1,35 @@
+version: '3'
+
+services:
+  change3d-api-optimized:
+    build:
+      context: ..
+      dockerfile: ./change3d_api_docker/Dockerfile.optimized
+    image: change3d-api-optimized:latest
+    container_name: change3d-api-optimized
+    ports:
+      - "8000:8000"
+    volumes:
+      # 代码热更新挂载
+      - ./:/app/change3d_api_docker:rw
+      - ../change3d_docker:/app/change3d_docker:rw
+      # 数据目录挂载
+      - ./t1:/app/change3d_api_docker/t1:rw
+      - ./t2:/app/change3d_api_docker/t2:rw
+      - ./output:/app/change3d_api_docker/output:rw
+      # 模型检查点目录
+      - ../change3d_docker/checkpoint:/app/change3d_docker/checkpoint:ro
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - PYTHONPATH=/app
+      - KMP_DUPLICATE_LIB_OK=TRUE
+      - DEBUG=1
+      - LOG_LEVEL=DEBUG
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped

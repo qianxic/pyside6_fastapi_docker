@@ -1,0 +1,88 @@
+# 使用Ubuntu基础镜像
+FROM ubuntu:20.04
+
+# 设置环境变量
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# 设置工作目录
+WORKDIR /app
+
+# 安装系统依赖
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    git \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgl1-mesa-glx \
+    ffmpeg \
+    libpng-dev \
+    libjpeg-dev \
+    libtiff-dev \
+    wget \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# 安装Miniconda
+RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh \
+    && bash /tmp/miniconda.sh -b -p /opt/conda \
+    && rm /tmp/miniconda.sh
+
+# 设置conda环境变量
+ENV PATH /opt/conda/bin:$PATH
+
+# 接受Conda Terms of Service
+RUN conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main && \
+    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+
+# 创建并激活conda环境
+RUN conda create -n change3d_env python=3.10 -y
+ENV PATH /opt/conda/envs/change3d_env/bin:$PATH
+SHELL ["conda", "run", "-n", "change3d_env", "/bin/bash", "-c"]
+
+# 创建目录结构
+RUN mkdir -p /app/change3d_api_docker /app/change3d_docker \
+    /app/change3d_api_docker/t1 /app/change3d_api_docker/t2 /app/change3d_api_docker/output
+
+# 复制requirements.txt
+COPY ./change3d_api_docker/requirements.txt /app/change3d_api_docker/
+
+# 安装PyTorch - 使用清华大学镜像源
+RUN pip install -i https://pypi.tuna.tsinghua.edu.cn/simple torch torchaudio torchvision
+
+# 安装Web框架 - 使用清华大学镜像源
+RUN pip install -i https://pypi.tuna.tsinghua.edu.cn/simple fastapi uvicorn[standard] python-multipart aiofiles
+
+# 安装地理空间库 - 使用conda-forge
+RUN conda install -y -c conda-forge gdal rasterio fiona shapely pyproj geopandas && conda clean -afy
+
+# 安装其他Python依赖 - 使用清华大学镜像源
+RUN pip install -i https://pypi.tuna.tsinghua.edu.cn/simple opencv-python pillow numpy requests psutil scikit-image scipy tqdm einops fvcore pytorchvideo albumentations python-dotenv
+
+# 复制项目文件
+COPY ./change3d_api_docker/ /app/change3d_api_docker/
+COPY ./change3d_docker/ /app/change3d_docker/
+
+# 创建启动脚本
+RUN echo '#!/bin/bash' > /app/start_api.sh && \
+    echo 'source /opt/conda/etc/profile.d/conda.sh' >> /app/start_api.sh && \
+    echo 'conda activate change3d_env' >> /app/start_api.sh && \
+    echo 'cd /app/change3d_api_docker' >> /app/start_api.sh && \
+    echo 'echo "启动API服务..."' >> /app/start_api.sh && \
+    echo 'exec uvicorn main:app --host 0.0.0.0 --port 8000 --reload' >> /app/start_api.sh && \
+    chmod +x /app/start_api.sh
+
+# 设置环境变量
+ENV PYTHONPATH=/app
+ENV KMP_DUPLICATE_LIB_OK=TRUE
+ENV CUDA_VISIBLE_DEVICES=0
+
+# 暴露端口
+EXPOSE 8000
+
+# 启动命令
+CMD ["/app/start_api.sh"]

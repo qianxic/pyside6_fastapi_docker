@@ -40,6 +40,11 @@ def main():
     sys.path.insert(0, str(project_dir))
     sys.path.insert(0, str(current_dir))
     
+    # 确保change3d_docker模块可以被找到
+    change3d_docker_path = project_dir / "change3d_docker"
+    if change3d_docker_path.exists():
+        sys.path.insert(0, str(change3d_docker_path))
+    
     print(f"工作目录: {os.getcwd()}")
     print(f"Python路径: {sys.path}")
     print(f"当前目录中的文件: {os.listdir(current_dir)}")

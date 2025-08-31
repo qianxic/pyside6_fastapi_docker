@@ -16,7 +16,6 @@ import os
 # 从当前目录导入其他模块
 from .x3d import create_x3d # 导入 X3D 模型创建函数
 from .change_decoder import ChangeDecoder # 导入变化检测解码器
-from .caption_decoder import CaptionDecoder # 导入变化描述解码器 (如果用到)
 from .utils import weight_init # 导入权重初始化函数
 
 
@@ -235,48 +234,12 @@ class Trainer(nn.Module):
         self.encoder = Encoder(args, self.embed_dims)
         
         # --- 根据任务类型选择和初始化解码器 --- 
-        # 1. 二元变化检测 (Binary Change Detection, BCD) 或变化描述 (Change Captioning, CC) 且 perception frame 为 1
-        if args.num_perception_frame == 1 and ('CD' in args.dataset or 'CC' in args.dataset):
-            # 如果是 CC 任务
-            if 'CC' in args.dataset:
-                self.decoder = CaptionDecoder(args) # 使用变化描述解码器
-                print("初始化 Change Captioning 解码器")
-            # 如果是 CD 任务 (二元变化检测)
-            else:
-                # 使用变化检测解码器 ChangeDecoder
-                # has_sigmoid=True 表示解码器输出会经过 Sigmoid 激活
-                self.decoder = ChangeDecoder(args, in_dim=self.embed_dims, has_sigmoid=True)
-                pass
-                # 初始化解码器的权重
-                weight_init(self.decoder)
+        
+        self.decoder = ChangeDecoder(args, in_dim=self.embed_dims, has_sigmoid=True)
+        # 初始化解码器的权重
+        weight_init(self.decoder)
 
-        # 2. 语义变化检测 (Semantic Change Detection, SCD) 且 perception frame 为 3
-        elif args.num_perception_frame == 3:
-            print("初始化 Semantic Change Detection 解码器 (pre, post, change)")
-            # 需要三个解码器分别预测 pre-mask, post-mask, change-mask
-            self.decoder_pre = ChangeDecoder(args, in_dim=self.embed_dims) # 预测 pre 语义
-            self.decoder_post = ChangeDecoder(args, in_dim=self.embed_dims) # 预测 post 语义
-            self.decoder_change = ChangeDecoder(args, in_dim=self.embed_dims, has_sigmoid=True) # 预测 change (二元)
-            # 初始化权重
-            weight_init(self.decoder_pre)
-            weight_init(self.decoder_post)
-            weight_init(self.decoder_change)
 
-        # 3. 建筑物损毁评估 (Building Damage Assessment, BDA) 且 perception frame 为 2
-        elif args.num_perception_frame == 2:
-            print("初始化 Building Damage Assessment 解码器 (cls, loc)")
-            # 需要两个解码器分别预测损毁类别和损毁定位
-            self.decoder_cls = ChangeDecoder(args, in_dim=self.embed_dims) # 预测类别
-            self.decoder_loc = ChangeDecoder(args, in_dim=self.embed_dims, has_sigmoid=True) # 预测定位 (二元)
-            # 初始化权重
-            weight_init(self.decoder_cls)
-            weight_init(self.decoder_loc)
-
-        # 4. 其他未定义的任务组合
-        else:
-            # 如果参数组合不匹配任何已知任务，则断言失败
-            print(f"错误：未知的任务配置! num_perception_frame={args.num_perception_frame}, dataset={args.dataset}")
-            assert False
         # --- 解码器初始化结束 --- 
 
     def update_bcd(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -303,79 +266,3 @@ class Trainer(nn.Module):
 
         # 返回最终预测结果
         return prediction
-    
-    def update_scd(self, x: torch.Tensor, y: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        用于语义变化检测任务 (SCD) 的前向传播。
-
-        Args:
-            x: 变化前图像张量 [B, C, H, W]。
-            y: 变化后图像张量 [B, C, H, W]。
-
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: 
-                (pre_mask, post_mask, change_mask)，分别是预测的前时相语义图、后时相语义图和二元变化图。
-        """
-        # 1. 使用编码器提取特征
-        # features 的结构是 [[c1_p1, c1_p2, c1_p3], [c2_p1,...], [c3_p1,...], [c4_p1,...]] (num_perception_frame=3)
-        features = self.encoder(x, y)
-        
-        # 2. 提取对应于 pre, change, post 的 perception frame 特征
-        # 假设 p1 对应 pre, p2 对应 change, p3 对应 post
-        perception_pre_feat = list(map(lambda feat_list: feat_list[0], features)) # 取每个 stage 的第 1 个 perception frame
-        perception_change_feat = list(map(lambda feat_list: feat_list[1], features)) # 取每个 stage 的第 2 个 perception frame
-        perception_post_feat = list(map(lambda feat_list: feat_list[2], features)) # 取每个 stage 的第 3 个 perception frame
-
-        # 3. 使用对应的解码器生成预测
-        pre_mask = self.decoder_pre(perception_pre_feat) # 预测 pre 语义
-        post_mask = self.decoder_post(perception_post_feat) # 预测 post 语义
-        change_mask = self.decoder_change(perception_change_feat) # 预测二元变化
-
-        # 返回三个预测结果
-        return pre_mask, post_mask, change_mask
-    
-    def update_bda(self, x: torch.Tensor, y: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        用于建筑物损毁评估任务 (BDA) 的前向传播。
-
-        Args:
-            x: 变化前图像张量 [B, C, H, W]。
-            y: 变化后图像张量 [B, C, H, W]。
-
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor]: (pred_cls, pred_loc)，分别是预测的损毁类别图和定位图。
-        """
-        # 1. 使用编码器提取特征
-        # features 结构 [[c1_p1, c1_p2], [c2_p1, c2_p2], ...] (num_perception_frame=2)
-        features = self.encoder(x, y)
-
-        # 2. 提取对应于 cls 和 loc 的 perception frame 特征
-        # 假设 p1 对应 cls, p2 对应 loc
-        perception_cls_feat = list(map(lambda feat_list: feat_list[0], features)) # 取每个 stage 的第 1 个 perception frame
-        perception_loc_feat = list(map(lambda feat_list: feat_list[1], features)) # 取每个 stage 的第 2 个 perception frame
-
-        # 3. 使用对应的解码器生成预测
-        pred_cls = self.decoder_cls(perception_cls_feat) # 预测损毁类别
-        pred_loc = self.decoder_loc(perception_loc_feat) # 预测损毁定位 (二元)
-
-        # 返回两个预测结果
-        return pred_cls, pred_loc
-    
-    def update_cc(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        """
-        用于变化描述任务 (CC) 的前向传播。
-
-        Args:
-            x: 变化前图像张量 [B, C, H, W]。
-            y: 变化后图像张量 [B, C, H, W]。
-
-        Returns:
-            torch.Tensor: 编码器输出的最终特征，用于后续的 Caption Decoder。
-        """
-        # 1. 使用编码器提取特征，设置 output_final=True
-        # 这会使得 encoder.base_forward 只返回最后一个 stage 的输出特征
-        features = self.encoder(x, y, output_final=True)
-        
-        # (注意：这里没有调用 self.decoder，因为 CaptionDecoder 可能在训练脚本中单独处理)
-        # 直接返回编码器的最终特征输出，供后续的语言模型或描述生成器使用
-        return features

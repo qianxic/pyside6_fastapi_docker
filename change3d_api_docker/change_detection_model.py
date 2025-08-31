@@ -12,8 +12,14 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_dir = os.path.dirname(current_dir)
 sys.path.insert(0, project_dir)
 
+# 确保change3d_docker模块可以被找到
+change3d_docker_path = os.path.join(project_dir, "change3d_docker")
+if os.path.exists(change3d_docker_path):
+    sys.path.insert(0, change3d_docker_path)
+
 # 解决OpenMP冲突问题
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ["OMP_NUM_THREADS"] = "1"
 
 # 设置正确的模型路径 (Docker 容器内绝对路径)
 default_model_path = "/app/change3d_docker/checkpoint/checkpoint.pth.tar"

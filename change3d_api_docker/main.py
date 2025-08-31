@@ -1,8 +1,12 @@
+import os
+# 解决OpenMP冲突问题
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ["OMP_NUM_THREADS"] = "1"
+
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from enum import Enum
 from typing import Optional, Dict, Any, List
-import os
 # import tempfile # Not used
 from datetime import datetime
 import uuid
@@ -17,9 +21,10 @@ import logging
 # import torch # Not used directly here
 # from change3d_docker.scripts_app.large_image_BCD import process_and_save as process_and_save_image # Not used directly here
 # from change3d_docker.scripts_app.large_raster_BCD import process_and_save as process_and_save_raster # Not used directly here
-from change3d_api_docker.change_detection_model import detection_model, DetectionMode
+from change_detection_model import detection_model, DetectionMode
 # from change3d_docker.scripts_app.batch_image_BCD import process_and_save as process_and_save_batch_image # Not used directly here
-# from change3d_docker.scripts_app.batch_raster_BCD import process_and_save as process_and_save_batch_raster # Not used directly here
+# from change3d_docker.scripts_app.batch_raster_BCD import process_and_sav
+#e as process_and_save_batch_raster # Not used directly here
 # 创建全局变量
 _detection_model = detection_model
 _DetectionMode = DetectionMode

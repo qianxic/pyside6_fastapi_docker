@@ -12,12 +12,7 @@ import math
 from scipy import stats
 from typing import Union, Type, List
 
-# 添加项目根目录到sys.path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from eval_func.bleu.bleu import Bleu
-from eval_func.rouge.rouge import Rouge
-from eval_func.cider.cider import Cider
-from eval_func.meteor.meteor import Meteor
+
 
 
 def weight_init(module):
